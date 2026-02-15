@@ -2,7 +2,22 @@ use std::{thread::sleep, time::Duration};
 
 use anyhow::Result;
 
-type Job = Box<dyn FnMut(&[u8]) -> Result<Vec<u8>>>;
+pub struct State {
+    pub image: Vec<u8>,
+    pub texts: Vec<String>,
+    pub translated: String,
+}
+impl State {
+    pub fn new() -> Self {
+        Self {
+            image: vec![],
+            texts: vec![],
+            translated: String::new(),
+        }
+    }
+}
+
+type Job = Box<dyn FnMut(&mut State) -> Result<&mut State>>;
 pub trait Pipeline {
     fn register_func(&mut self, func: Job);
     fn run(&mut self) -> Result<()>;
@@ -20,7 +35,11 @@ impl Pipeline for SimplePipe {
 
     fn run(&mut self) -> Result<()> {
         loop {
-            let _ = self.functions.iter_mut().try_fold(vec![], |acc, f| f(&acc));
+            let mut state = State::new();
+            let _ = self
+                .functions
+                .iter_mut()
+                .try_fold(&mut state, |acc, f| f(acc));
             sleep(Duration::from_secs(self.interval_sec));
         }
     }

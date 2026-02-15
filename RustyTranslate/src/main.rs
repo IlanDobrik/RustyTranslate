@@ -8,45 +8,51 @@ use anyhow::Result;
 
 use crate::capture::Capturer;
 use crate::capture::basic::BasicCapturer;
+
 use crate::display::Displayer;
 use crate::display::notification::Notification;
+
 use crate::ocr::Ocr;
 use crate::ocr::tesseract::TesseractOcr;
-use crate::pipeline::{Pipeline, SimplePipe};
-use crate::translate::{BasicTranslator, Translator};
+
+use crate::translate::Translator;
+use crate::translate::basic::BasicTranslator;
+
+use crate::pipeline::{Pipeline, SimplePipe, State};
 
 fn res_main() -> Result<()> {
     let mut pipe = SimplePipe::new(1);
 
     let mut capturer = BasicCapturer::new()?;
     let aocr = TesseractOcr::new();
-    let translator = BasicTranslator::new();
+    let translator = BasicTranslator::new("it".to_string(), "en".to_string());
     let displayer = Notification::new();
 
-    pipe.register_func(Box::new(move |_| {
+    pipe.register_func(Box::new(move |state: &mut State| {
         let file = capturer.capture()?;
-        Ok(file)
+        state.image = file;
+        Ok(state)
     }));
 
-    pipe.register_func(Box::new(move |image: &[u8]| {
-        let texts = aocr.scan_text(image)?;
+    pipe.register_func(Box::new(move |state: &mut State| {
+        let texts = aocr.scan_text(&state.image)?;
         println!("texts: {texts:?}");
-        Ok(texts.join("\n").into_bytes())
+        state.texts = texts;
+        Ok(state)
     }));
 
-    pipe.register_func(Box::new(move |text_bytes: &[u8]| {
-        let text = str::from_utf8(text_bytes)?;
-        let translated = translator.translate(text)?;
+    pipe.register_func(Box::new(move |state: &mut State| {
+        let translated = translator.translate(&state.texts.join("\n"))?;
         println!("translated: {translated:?}\n");
+        state.translated = translated;
 
-        Ok(translated.into_bytes())
+        Ok(state)
     }));
 
-    pipe.register_func(Box::new(move |text_bytes: &[u8]| {
-        let text = str::from_utf8(text_bytes)?;
-        displayer.display(text)?;
+    pipe.register_func(Box::new(move |state: &mut State| {
+        displayer.display(&state.translated)?;
 
-        Ok(vec![])
+        Ok(state)
     }));
 
     println!("ready");
